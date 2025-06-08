@@ -13,4 +13,5 @@ python-dateutil==2.9.0.post0
 pytz==2025.2
 tzdata==2025.2
 pillow==10.1.0
+rich
 
