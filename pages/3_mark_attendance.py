@@ -7,6 +7,7 @@ from PIL import Image
 import io
 import time
 import numpy as np
+import pytz
 
 st.set_page_config(page_title="Mark Attendance", page_icon="📋", layout="wide")
 
@@ -17,10 +18,29 @@ if "last_student_id" not in st.session_state:
     st.session_state.last_student_id = None
 if "last_action_time" not in st.session_state:
     st.session_state.last_action_time = None
+if "pending_id" not in st.session_state:
+    st.session_state.pending_id = None
+
+# Function to get current date and time in Sri Lanka time zone
+def get_sri_lanka_time():
+    # Set Sri Lanka time zone (Asia/Colombo)
+    sri_lanka_tz = pytz.timezone('Asia/Colombo')
+    # Get current time in Sri Lanka
+    return datetime.datetime.now(sri_lanka_tz)
+
+# Function to get current date in Sri Lanka as string (YYYY-MM-DD)
+def get_sri_lanka_date_str():
+    return get_sri_lanka_time().strftime('%Y-%m-%d')
 
 # Callback function to clear the input
 def set_clear_input_flag():
     st.session_state.clear_input = True
+
+# Callback function for input changes (for auto-processing QR codes)
+def on_input_change():
+    # If there's text in the input field, store it for processing
+    if st.session_state.student_id_input:
+        st.session_state.pending_id = st.session_state.student_id_input
 
 # Check login status
 if not st.session_state.get("logged_in", False):
@@ -153,6 +173,12 @@ st.markdown("""
         border: 2px solid #1E88E5 !important;
         box-shadow: 0 0 8px rgba(30, 136, 229, 0.5) !important;
     }
+    .time-display {
+        text-align: center;
+        font-size: 0.9rem;
+        color: #555;
+        margin-bottom: 15px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -169,6 +195,10 @@ os.makedirs(QR_FOLDER, exist_ok=True)
 
 # App title
 st.markdown("<h1 class='main-header'>📋 Mark Attendance</h1>", unsafe_allow_html=True)
+
+# Display current Sri Lanka time
+current_sl_time = get_sri_lanka_time()
+st.markdown(f"<p class='time-display'>Current Time in Sri Lanka: {current_sl_time.strftime('%Y-%m-%d %H:%M:%S')}</p>", unsafe_allow_html=True)
 
 # Function to mark attendance with in/out tracking
 def mark_attendance(student_id):
@@ -207,9 +237,9 @@ def mark_attendance(student_id):
         else:
             att_df = pd.DataFrame(columns=["StudentID", "Name", "Date", "TimeIn", "TimeOut", "Status"])
         
-        # Get current date and time
-        today = datetime.datetime.now().strftime('%Y-%m-%d')
-        current_time = datetime.datetime.now().strftime('%H:%M:%S')
+        # Get current date and time in Sri Lanka
+        today = get_sri_lanka_date_str()
+        current_time = get_sri_lanka_time().strftime('%H:%M:%S')
         
         # Check if student has an entry for today
         today_records = att_df[(att_df['StudentID'] == student_id) & (att_df['Date'] == today)]
@@ -257,7 +287,7 @@ def mark_attendance(student_id):
         
         # Store the student ID and action time for future reference
         st.session_state.last_student_id = student_id
-        st.session_state.last_action_time = datetime.datetime.now()
+        st.session_state.last_action_time = get_sri_lanka_time()
         
         return True, message
     except Exception as e:
@@ -312,16 +342,43 @@ with col1:
     # Add auto-focus class for better visibility
     st.markdown('<style>.stTextInput > div:first-child {border: 2px solid #1E88E5 !important;}</style>', unsafe_allow_html=True)
     
-    # Input field for student ID (will also capture QR code scanner input which acts as keyboard)
+    # Input field for student ID with callback for auto-processing
     student_id = st.text_input("Student ID", value=initial_value, key="student_id_input", 
-                              placeholder="Scan QR Code or Enter Student ID")
+                              placeholder="Scan QR Code or Enter Student ID",
+                              on_change=on_input_change)
+
+    # Auto-process QR code scans
+    if st.session_state.pending_id:
+        # Check if enough time has passed since last action (to prevent duplicate scans)
+        current_time = get_sri_lanka_time()
+        cooldown_passed = True
+        
+        if st.session_state.last_action_time:
+            time_diff = (current_time - st.session_state.last_action_time).total_seconds()
+            cooldown_passed = time_diff > 1.5  # 1.5 second cooldown
+        
+        if cooldown_passed:
+            # Process attendance
+            success, message = mark_attendance(st.session_state.pending_id)
+            # Clear pending ID
+            st.session_state.pending_id = None
+            
+            if success:
+                # Clear input for next scan
+                st.session_state.clear_input = True
+                st.success(message)
+                # Force rerun to update displays
+                time.sleep(0.3)  # Small delay for better UX
+                st.rerun()
+            else:
+                st.error(message)
 
 with col2:
     st.write("")
     st.write("")
     mark_button_label = "Mark Attendance"
     
-    # Button to mark attendance
+    # Button to mark attendance (fallback for manual entry)
     if student_id:
         if st.button(mark_button_label, use_container_width=True):
             # Process attendance and automatically determine IN/OUT status
@@ -355,7 +412,7 @@ if st.session_state.last_student_id:
         # Check current status
         if os.path.exists(ATTENDANCE_PATH):
             att_df = pd.read_csv(ATTENDANCE_PATH, encoding='utf-8')
-            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            today = get_sri_lanka_date_str()  # Use Sri Lanka date
             student_today = att_df[(att_df['StudentID'] == student_id) & (att_df['Date'] == today)]
             
             if not student_today.empty:
@@ -431,7 +488,7 @@ try:
             st.warning("Attendance records need to be updated to the new format.")
         else:
             # Get today's records
-            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            today = get_sri_lanka_date_str()  # Use Sri Lanka date
             today_df = att_df[att_df['Date'] == today]
             
             if not today_df.empty:
@@ -455,7 +512,7 @@ try:
                     if info['Status'] == 'In':
                         # Calculate how long they've been in
                         time_in = datetime.datetime.strptime(info['TimeIn'], '%H:%M:%S')
-                        current_time = datetime.datetime.now()
+                        current_time = get_sri_lanka_time()  # Use Sri Lanka time
                         duration_mins = ((current_time.hour * 60 + current_time.minute) - 
                                          (time_in.hour * 60 + time_in.minute))
                         
@@ -548,7 +605,7 @@ if st.button("Download Today's Attendance Report"):
     try:
         if os.path.exists(ATTENDANCE_PATH):
             att_df = pd.read_csv(ATTENDANCE_PATH, encoding='utf-8')
-            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            today = get_sri_lanka_date_str()  # Use Sri Lanka date
             today_df = att_df[att_df['Date'] == today]
             
             if not today_df.empty:

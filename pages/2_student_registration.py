@@ -8,6 +8,20 @@ import time
 import random
 import string
 import datetime
+import matplotlib.pyplot as plt
+import numpy as np
+import pytz
+
+# Function to get current date and time in Sri Lanka time zone
+def get_sri_lanka_time():
+    # Set Sri Lanka time zone (Asia/Colombo)
+    sri_lanka_tz = pytz.timezone('Asia/Colombo')
+    # Get current time in Sri Lanka
+    return datetime.datetime.now(sri_lanka_tz)
+
+# Function to get current date in Sri Lanka as string (YYYY-MM-DD)
+def get_sri_lanka_date_str():
+    return get_sri_lanka_time().strftime('%Y-%m-%d')
 
 st.set_page_config(page_title="Student Registration", page_icon="📝", layout="wide")
 
@@ -45,6 +59,49 @@ st.markdown("""
     .download-btn {
         margin-top: 10px;
     }
+    .attendance-card {
+        background-color: #f5f9ff;
+        border-left: 4px solid #1976d2;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+    .status-in {
+        background-color: #d4edda;
+        color: #155724;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-weight: bold;
+    }
+    .status-out {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 3px 8px;
+        border-radius: 3px;
+        font-weight: bold;
+    }
+    .metric-card {
+        background-color: #f5f9ff;
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #1565C0;
+    }
+    .metric-label {
+        font-size: 14px;
+        color: #555;
+    }
+    .time-display {
+        text-align: center;
+        font-size: 0.9rem;
+        color: #555;
+        margin-bottom: 15px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -53,6 +110,7 @@ APP_PATH = "F:/attendance_app"  # Using forward slashes for path compatibility
 DATA_DIR = os.path.join(APP_PATH, "data")
 QR_FOLDER = os.path.join(APP_PATH, "qr_codes")
 DATA_PATH = os.path.join(DATA_DIR, "students.csv")
+ATTENDANCE_PATH = os.path.join(DATA_DIR, "attendance.csv")
 
 # Create directories with proper error handling
 try:
@@ -79,6 +137,33 @@ if "generate_new_id" not in st.session_state:
 
 # App title
 st.markdown("<h1 class='main-header'>📝 Student Registration</h1>", unsafe_allow_html=True)
+
+# Display current Sri Lanka time
+current_sl_time = get_sri_lanka_time()
+st.markdown(f"<p class='time-display'>Current Time in Sri Lanka: {current_sl_time.strftime('%Y-%m-%d %H:%M:%S')}</p>", unsafe_allow_html=True)
+
+# Function to get attendance records for a specific student
+def get_student_attendance(student_id):
+    if not os.path.exists(ATTENDANCE_PATH):
+        return pd.DataFrame()  # Return empty DataFrame if no attendance records
+    
+    try:
+        # Load attendance data
+        att_df = pd.read_csv(ATTENDANCE_PATH, encoding='utf-8')
+        
+        # Filter for the specific student
+        student_att = att_df[att_df['StudentID'] == student_id]
+        
+        if student_att.empty:
+            return pd.DataFrame()
+            
+        # Sort by date and time
+        student_att = student_att.sort_values(by=['Date', 'TimeIn'], ascending=[False, False])
+        
+        return student_att
+    except Exception as e:
+        st.error(f"Error loading attendance data: {e}")
+        return pd.DataFrame()
 
 # Function to generate student ID
 def generate_student_id(prefix="STU"):
@@ -173,7 +258,7 @@ def save_student(name, student_id, dob, school_name):
             "StudentID": student_id,
             "DOB": dob.strftime('%Y-%m-%d'),
             "SchoolName": school_name,
-            "RegisteredOn": pd.Timestamp.now().strftime('%Y-%m-%d')
+            "RegisteredOn": get_sri_lanka_date_str()  # Use Sri Lanka date
         }
         
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -220,11 +305,11 @@ with tab1:
         st.subheader("Student Information")
         name = st.text_input("Full Name*")
         
-        # Date of birth instead of age
+        # Date of birth instead of age - Use Sri Lanka time for max value
         dob = st.date_input("Date of Birth*", 
-                          value=datetime.date.today() - datetime.timedelta(days=365*10),
+                          value=get_sri_lanka_time().date() - datetime.timedelta(days=365*10),
                           min_value=datetime.date(1990, 1, 1),
-                          max_value=datetime.date.today())
+                          max_value=get_sri_lanka_time().date())
         
         # New field for school name
         school_name = st.text_input("School Name*")
@@ -288,7 +373,7 @@ with tab1:
             st.error("Name, Student ID, and School Name are required fields.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# Tab 2: Student List
+# Tab 2: Student List with Attendance View
 with tab2:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Registered Students")
@@ -324,9 +409,9 @@ with tab2:
     # Display student data with formatting
     st.dataframe(df, use_container_width=True)
     
-    # Add individual QR code download functionality
-    st.write("### Download QR Code for Specific Student")
-    selected_student = st.selectbox("Select a student to download their QR code:", 
+    # Add individual QR code download and attendance view functionality
+    st.write("### Student Details")
+    selected_student = st.selectbox("Select a student to view details:", 
                                    options=df['Name'].tolist(),
                                    format_func=lambda x: f"{x} (ID: {df[df['Name']==x]['StudentID'].values[0]})")
     
@@ -335,31 +420,146 @@ with tab2:
         student_id = student_row['StudentID']
         student_name = student_row['Name']
         
-        # Check if QR exists or generate it
-        qr_file_path = os.path.join(QR_FOLDER, f"{student_id}.png")
+        # Create tabs for student details
+        detail_tabs = st.tabs(["QR Code", "Attendance Records"])
         
-        if os.path.exists(qr_file_path):
-            qr_image = Image.open(qr_file_path)
-            st.image(qr_image, caption=f"QR Code for {student_name}", width=300)
-        else:
-            # Generate new QR code
-            try:
-                _, qr_image = create_branded_qr(student_id, student_name)
+        # QR Code Tab
+        with detail_tabs[0]:
+            # Check if QR exists or generate it
+            qr_file_path = os.path.join(QR_FOLDER, f"{student_id}.png")
+            
+            if os.path.exists(qr_file_path):
+                qr_image = Image.open(qr_file_path)
                 st.image(qr_image, caption=f"QR Code for {student_name}", width=300)
-            except Exception as e:
-                st.error(f"Could not generate QR code: {e}")
-                st.stop()
+            else:
+                # Generate new QR code
+                try:
+                    _, qr_image = create_branded_qr(student_id, student_name)
+                    st.image(qr_image, caption=f"QR Code for {student_name}", width=300)
+                except Exception as e:
+                    st.error(f"Could not generate QR code: {e}")
+                    st.stop()
+            
+            # Convert QR to bytes for download
+            buf = io.BytesIO()
+            qr_image.save(buf, format='PNG')
+            st.download_button(
+                label="Download QR Pass",
+                data=buf.getvalue(),
+                file_name=f"{student_id}_pass.png",
+                mime="image/png",
+                key="download_existing_qr"
+            )
         
-        # Convert QR to bytes for download
-        buf = io.BytesIO()
-        qr_image.save(buf, format='PNG')
-        st.download_button(
-            label="Download QR Pass",
-            data=buf.getvalue(),
-            file_name=f"{student_id}_pass.png",
-            mime="image/png",
-            key="download_existing_qr"
-        )
+        # Attendance Records Tab
+        with detail_tabs[1]:
+            # Get attendance records
+            attendance_df = get_student_attendance(student_id)
+            
+            if not attendance_df.empty:
+                # Create summary statistics
+                total_days = attendance_df['Date'].nunique()
+                
+                # Calculate total time spent
+                total_duration = 0
+                if 'TimeOut' in attendance_df.columns and 'TimeIn' in attendance_df.columns:
+                    for _, row in attendance_df.iterrows():
+                        if row['Status'] == 'Out' and row['TimeOut']:
+                            try:
+                                time_in = datetime.datetime.strptime(row['TimeIn'], '%H:%M:%S')
+                                time_out = datetime.datetime.strptime(row['TimeOut'], '%H:%M:%S')
+                                duration = (time_out - time_in).seconds // 60  # Minutes
+                                total_duration += duration
+                            except Exception:
+                                pass
+                
+                # Display summary metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{total_days}</div>
+                        <div class="metric-label">Days Attended</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{len(attendance_df)}</div>
+                        <div class="metric-label">Total Check-ins</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col3:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-value">{total_duration}</div>
+                        <div class="metric-label">Total Minutes</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Create attendance history visualization
+                if total_days > 1:
+                    st.subheader("Attendance Pattern")
+                    try:
+                        # Group by date and count
+                        date_counts = attendance_df.groupby('Date').size().reset_index(name='Count')
+                        # Convert dates to datetime for better plotting
+                        date_counts['Date'] = pd.to_datetime(date_counts['Date'])
+                        
+                        # Create a simple bar chart
+                        fig, ax = plt.subplots(figsize=(10, 3))
+                        ax.bar(date_counts['Date'], date_counts['Count'], color='#1976d2')
+                        ax.set_ylabel('Check-ins')
+                        ax.set_title('Attendance by Date')
+                        
+                        # Format x-axis dates
+                        fig.autofmt_xdate()
+                        
+                        st.pyplot(fig)
+                    except Exception as e:
+                        st.error(f"Could not create attendance visualization: {e}")
+                
+                # Show detailed attendance records
+                st.subheader("Detailed Records")
+                
+                # Add duration column to display
+                display_df = attendance_df.copy()
+                if 'TimeOut' in display_df.columns and 'TimeIn' in display_df.columns:
+                    display_df['Duration'] = ""
+                    for idx, row in display_df.iterrows():
+                        if row['Status'] == 'Out' and row['TimeOut']:
+                            try:
+                                time_in = datetime.datetime.strptime(row['TimeIn'], '%H:%M:%S')
+                                time_out = datetime.datetime.strptime(row['TimeOut'], '%H:%M:%S')
+                                duration = (time_out - time_in).seconds // 60  # Minutes
+                                display_df.at[idx, 'Duration'] = f"{duration} mins"
+                            except Exception:
+                                display_df.at[idx, 'Duration'] = "N/A"
+                        elif row['Status'] == 'In':
+                            display_df.at[idx, 'Duration'] = "In progress"
+                
+                # Format status with color indicators
+                def format_status(status):
+                    return f"<span class='status-{status.lower()}'>{status}</span>"
+                
+                # Apply custom formatting if possible
+                if 'Duration' in display_df.columns:
+                    cols_to_display = ['Date', 'TimeIn', 'TimeOut', 'Status', 'Duration']
+                else:
+                    cols_to_display = ['Date', 'TimeIn', 'Status']
+                
+                st.dataframe(display_df[cols_to_display], use_container_width=True)
+                
+                # Add download button for attendance records
+                st.download_button(
+                    label="Download Attendance Records",
+                    data=display_df.to_csv(index=False),
+                    file_name=f"{student_id}_attendance.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info(f"No attendance records found for {student_name}")
+                st.write("This student has not checked in to the swimming pool yet.")
     
     # Export options
     st.write("### Batch Operations")
@@ -406,8 +606,8 @@ with st.expander("Bulk Import Students"):
                             else:
                                 import_df[col] = ""
                     
-                    # Add registration date
-                    import_df["RegisteredOn"] = pd.Timestamp.now().strftime('%Y-%m-%d')
+                    # Add registration date with Sri Lanka time
+                    import_df["RegisteredOn"] = get_sri_lanka_date_str()
                     
                     # Read existing data
                     try:

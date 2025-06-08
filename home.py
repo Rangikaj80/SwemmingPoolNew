@@ -2,6 +2,19 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import datetime
+import pytz
+
+# Function to get current date and time in Sri Lanka time zone
+def get_sri_lanka_time():
+    # Set Sri Lanka time zone (Asia/Colombo)
+    sri_lanka_tz = pytz.timezone('Asia/Colombo')
+    # Get current time in Sri Lanka
+    return datetime.datetime.now(sri_lanka_tz)
+
+# Function to get current date in Sri Lanka as string (YYYY-MM-DD)
+def get_sri_lanka_date_str():
+    return get_sri_lanka_time().strftime('%Y-%m-%d')
 
 st.set_page_config(page_title="Swimming Attendance", layout="wide", 
                    page_icon="🏊‍♂️", initial_sidebar_state="expanded")
@@ -42,11 +55,21 @@ st.markdown("""
         font-size: 1rem;
         opacity: 0.8;
     }
+    .time-display {
+        text-align: center;
+        font-size: 1.1rem;
+        color: #555;
+        margin-bottom: 15px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # App title
 st.markdown("<h1 class='main-header'>🏊‍♂️ Swimming Pool Attendance System</h1>", unsafe_allow_html=True)
+
+# Display current Sri Lanka time
+current_sl_time = get_sri_lanka_time()
+st.markdown(f"<p class='time-display'>Current Time in Sri Lanka: {current_sl_time.strftime('%Y-%m-%d %H:%M:%S')}</p>", unsafe_allow_html=True)
 
 # Dashboard metrics
 col1, col2, col3 = st.columns(3)
@@ -66,7 +89,10 @@ try:
     if os.path.exists(attendance_file):
         attendance_df = pd.read_csv(attendance_file)
         total_attendances = len(attendance_df)
-        today_attendances = len(attendance_df[attendance_df['Date'] == pd.Timestamp.now().strftime('%Y-%m-%d')])
+        
+        # Use Sri Lanka date for filtering today's attendances
+        today_sl = get_sri_lanka_date_str()
+        today_attendances = len(attendance_df[attendance_df['Date'] == today_sl])
     else:
         total_attendances = 0
         today_attendances = 0
@@ -111,7 +137,7 @@ This system helps you manage swimming pool attendance efficiently with QR code-b
 """)
 st.markdown("</div>", unsafe_allow_html=True)
 
-# Recent activity - FIXED SECTION
+# Recent activity - FIXED SECTION WITH SRI LANKA TIME
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.markdown("<h2 class='sub-header'>Recent Activity</h2>", unsafe_allow_html=True)
 
@@ -124,7 +150,7 @@ try:
         if not attendance_df.empty:
             # Sort by date (most recent first) and take last 5
             attendance_df['Date'] = pd.to_datetime(attendance_df['Date'])
-            recent_df = attendance_df.sort_values('Date', ascending=False).head(5)
+            recent_df = attendance_df.sort_values(['Date', 'TimeIn'], ascending=[False, False]).head(5)
             
             # Check if the attendance records already have names
             if 'Name' in recent_df.columns:
@@ -154,12 +180,28 @@ try:
                     recent_with_names = recent_df.copy()
                     recent_with_names['Name'] = "Student " + recent_df['StudentID'].astype(str)
             
-            # Display in a more attractive format
+            # Display in a more attractive format with Sri Lanka time zone
             for _, row in recent_with_names.iterrows():
                 # Safely access the Name column with a fallback
                 student_name = row.get('Name', f"Student {row['StudentID']}")
-                date_str = row['Date'].strftime('%b %d, %Y')
-                st.markdown(f"**{student_name}** ({row['StudentID']}) checked in on {date_str}")
+                
+                # Format date and include time if available
+                try:
+                    date_str = row['Date'].strftime('%b %d, %Y')
+                    time_info = ""
+                    status = ""
+                    
+                    if 'TimeIn' in row and not pd.isna(row['TimeIn']):
+                        time_info = f" at {row['TimeIn']}"
+                    
+                    if 'Status' in row and not pd.isna(row['Status']):
+                        status_color = "#4CAF50" if row['Status'] == "In" else "#F44336"
+                        status = f" <span style='color:{status_color};font-weight:bold;'>({row['Status']})</span>"
+                    
+                    st.markdown(f"**{student_name}** ({row['StudentID']}) checked in on {date_str}{time_info}{status}", unsafe_allow_html=True)
+                except Exception as date_error:
+                    # Fallback if date formatting fails
+                    st.markdown(f"**{student_name}** ({row['StudentID']}) checked in recently")
             
             if len(recent_with_names) >= 5:
                 st.markdown("*View full history in the Attendance Summary page*")
@@ -177,7 +219,7 @@ except Exception as e:
 st.markdown("</div>", unsafe_allow_html=True)
         
 st.markdown("""
-<div class='card' style='background-color: #52052e;'>
+<div class='card' style='background-color: #e8f4f8;'>
     <h2 class='sub-header'>Quick Guide</h2>
     <ol>
         <li><strong>First time?</strong> Login as administrator (default: admin/1234)</li>

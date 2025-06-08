@@ -1,2 +1,3 @@
-username,password
-Jayanath,Rangika123
+username,password,role
+Jayanath,Rangika123,admin
+Rangik,Srilanka@123,user

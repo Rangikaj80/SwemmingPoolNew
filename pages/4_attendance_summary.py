@@ -6,6 +6,18 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 import calendar
+import pytz
+
+# Function to get current date and time in Sri Lanka time zone
+def get_sri_lanka_time():
+    # Set Sri Lanka time zone (Asia/Colombo)
+    sri_lanka_tz = pytz.timezone('Asia/Colombo')
+    # Get current time in Sri Lanka
+    return datetime.datetime.now(sri_lanka_tz)
+
+# Function to get current date in Sri Lanka as string (YYYY-MM-DD)
+def get_sri_lanka_date_str():
+    return get_sri_lanka_time().strftime('%Y-%m-%d')
 
 st.set_page_config(page_title="Attendance Summary", page_icon="📊", layout="wide")
 
@@ -70,6 +82,12 @@ st.markdown("""
         border-radius: 4px;
         font-weight: bold;
     }
+    .time-display {
+        text-align: center;
+        font-size: 0.9rem;
+        color: #555;
+        margin-bottom: 15px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -84,6 +102,10 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 # App title
 st.markdown("<h1 class='main-header'>📊 Attendance Summary</h1>", unsafe_allow_html=True)
+
+# Display current Sri Lanka time
+current_sl_time = get_sri_lanka_time()
+st.markdown(f"<p class='time-display'>Current Time in Sri Lanka: {current_sl_time.strftime('%Y-%m-%d %H:%M:%S')}</p>", unsafe_allow_html=True)
 
 # Check if data exists
 if not os.path.exists(ATTENDANCE_PATH):
@@ -125,14 +147,14 @@ with tab1:
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("Start Date", 
-                                  value=attendance_df['Date'].min() if not attendance_df.empty else datetime.datetime.now(),
+                                  value=attendance_df['Date'].min() if not attendance_df.empty else get_sri_lanka_time(),
                                   min_value=attendance_df['Date'].min() if not attendance_df.empty else None,
-                                  max_value=datetime.datetime.now())
+                                  max_value=get_sri_lanka_time())
     with col2:
         end_date = st.date_input("End Date", 
-                                value=datetime.datetime.now(),
+                                value=get_sri_lanka_time(),
                                 min_value=attendance_df['Date'].min() if not attendance_df.empty else None,
-                                max_value=datetime.datetime.now())
+                                max_value=get_sri_lanka_time())
     
     # Filter data by date range
     filtered_df = attendance_df[(attendance_df['Date'] >= pd.Timestamp(start_date)) & 
@@ -327,8 +349,8 @@ with tab2:
             
             # Display student details
             st.markdown(f"""
-            <div style="padding:15px; background-color:#faf8fa; border-radius:5px; margin-bottom:20px; border: 1px solid #dee2e6;">
-                <h3 style="color:#f8f8fa;">{student_info['Name']}</h3>
+            <div style="padding:15px; background-color:#f8f8fa; border-radius:5px; margin-bottom:20px; border: 1px solid #dee2e6;">
+                <h3 style="color:#1E88E5;">{student_info['Name']}</h3>
                 <p><strong>Student ID:</strong> {student_info['StudentID']}</p>
                 <p><strong>Date of Birth:</strong> {student_info.get('DOB', 'N/A')}</p>
                 <p><strong>School:</strong> {student_info.get('SchoolName', 'N/A')}</p>
@@ -452,12 +474,12 @@ with tab3:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Daily Attendance Records")
     
-    # Date filter
+    # Date filter - Use Sri Lanka time
     date_filter = st.date_input(
         "Select Date",
-        value=datetime.datetime.now(),
+        value=get_sri_lanka_time(),
         min_value=attendance_df['Date'].min() if not attendance_df.empty else None,
-        max_value=datetime.datetime.now()
+        max_value=get_sri_lanka_time()
     )
     
     # Filter by selected date
@@ -613,8 +635,8 @@ with st.expander("Generate Reports"):
     )
     
     if report_type == "Monthly Summary":
-        # Allow selecting month and year
-        current_year = datetime.datetime.now().year
+        # Allow selecting month and year - Use Sri Lanka time for current year
+        current_year = get_sri_lanka_time().year
         year_options = range(current_year - 2, current_year + 1)
         selected_year = st.selectbox("Year", options=year_options, index=2)
         month_options = list(range(1, 13))
@@ -657,7 +679,7 @@ with st.expander("Generate Reports"):
                 if 'TimeIn' in monthly_data.columns:
                     try:
                         # Extract hour from time
-                        monthly_data['Hour'] = pd.to_datetime(monthly_data['TimeIn']).dt.hour
+                        monthly_data['Hour'] = pd.to_datetime(monthly_data['TimeIn'], format='%H:%M:%S', errors='coerce').dt.hour
                         
                         # Count check-ins by hour
                         hourly_data = monthly_data['Hour'].value_counts().sort_index().reset_index()
